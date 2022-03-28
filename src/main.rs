@@ -24,6 +24,7 @@ struct Args {
     )]
     config: PathBuf,
     #[clap(short='a', long="create-api-key",
+        default_value="",
         help="Supply a hostname to create an api key.  The new key will \
             be printed to stdout.")]
     host: String,

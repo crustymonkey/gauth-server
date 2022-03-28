@@ -107,6 +107,22 @@ pub fn get_router_w_routes(conf: Arc<Ini>, db: Arc<DB>) -> Result<Router> {
 /*
  * Below here are the actual handler functions for the requests
  */
+
+ /// This consists of a reuqest to create a new secret. The request body
+ /// should look like:
+ /// ```
+ /// {
+ ///    "api_key": "abc123",
+ ///    "ident": "key identifier"
+ /// }
+ /// ```
+ /// 
+ /// The response will be:
+ /// ```
+ /// {
+ ///    "status": true
+ /// }
+ /// ```
 fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
     let g = GoogleAuthenticator::new();
     let body = match req.get::<Json>() {
@@ -145,6 +161,22 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response
     ));
 }
 
+/// This will verify that a code is valid for the given identity (hostname)
+/// caller.  The request body should look like:
+/// ```
+/// {
+///     "api_key": "abc123",
+///     "ident": "key identifier",
+///     "code": 123456
+/// }
+/// ```
+/// 
+/// The response will be:
+/// ```
+/// {
+///     "status": true|false
+/// }
+/// ```
 fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
     let g = GoogleAuthenticator::new();
     let body = match req.get::<Json>() {
@@ -173,6 +205,23 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Respons
     ));
 }
 
+/// This will create and return an SVG format and return it as a string.
+/// The request should look like:
+/// ```
+/// {
+///     "api_key": "abc123",
+///     "ident": "key identifier",
+///     "name": "name for code, could be company name",
+///     "title": "title for the code"
+/// }
+///
+//// The response will look like:
+/// ```
+/// {
+///     "status": true,
+///     "qr_code": "SVG string"
+/// }
+/// ```
 fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
     let goog = GoogleAuthenticator::new();
     let (_, name, title, secret, width, height) = 
@@ -204,6 +253,24 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
     ));
 }
 
+/// This will create and return a URL string for a rendered qr code.
+/// The request should look like:
+/// ```
+/// {
+///     "api_key": "abc123",
+///     "ident": "key identifier",
+///     "name": "name for code, could be company name",
+///     "title": "title for the code"
+/// }
+/// ```
+/// 
+/// The response will look like:
+/// ```
+/// {
+///     "status": true,
+///     "qr_code_url": "http://somewhere.com"
+/// }
+/// ```
 fn qr_url(
     req: &mut Request,
     conf: Arc<Ini>,
