@@ -52,6 +52,7 @@ impl DB {
         return Ok((id, token));
     }
 
+    #[allow(dead_code)]
     pub fn get_secret_by_id(&mut self, id: i64) -> Result<(String, String)> {
         let q = "SELECT ident, token FROM secrets WHERE id = $1";
 
