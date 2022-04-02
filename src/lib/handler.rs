@@ -5,20 +5,20 @@ use google_authenticator::{GoogleAuthenticator, ErrorCorrectionLevel::Medium};
 use iron::{prelude::*, Handler, error, status, mime};
 use json::object;
 use router::Router;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use super::{db::DB, error::InvalidReqBody};
 
 pub struct AuthHandler {
     config: Arc<Ini>,
-    db: Arc<DB>,
-    func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<DB>) -> IronResult<Response>>,
+    db: Arc<Mutex<DB>>,
+    func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>) -> IronResult<Response>>,
 }
 
 impl AuthHandler {
     fn new(
         config: Arc<Ini>,
-        db: Arc<DB>,
-        func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<DB>) -> IronResult<Response>>,
+        db: Arc<Mutex<DB>>,
+        func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>) -> IronResult<Response>>,
     ) -> Self {
         return Self { config, db, func };
     }
@@ -42,7 +42,7 @@ impl Handler for AuthHandler {
         };
 
         let api_key = match body.get("api_key") {
-            Some(k) => k.to_string(),
+            Some(k) => k.as_str().unwrap().to_string(),
             None => {
                 error!("api_key missing from request body");
                 return Err(IronError::new(
@@ -53,17 +53,17 @@ impl Handler for AuthHandler {
         };
 
         debug!("API KEY: {:?}", api_key);
+        {
+            // I need a mutable reference to the database for operations
+            let mut mdb = self.db.lock().unwrap();
 
-        // I need a mutable reference to the database for operations
-        let mut mdb = self.db.clone();
-        let db = Arc::get_mut(&mut mdb).unwrap();
-
-        if !db.api_key_exists(&api_key) {
-            error!("Invalid api_key passed in: {}", api_key);
-            return Err(IronError::new(
-                InvalidReqBody::new("Invalid api key"),
-                (status::BadRequest, "Invalid api key"),
-            ));
+            if !mdb.api_key_exists(&api_key) {
+                error!("Invalid api_key passed in: {}", api_key);
+                return Err(IronError::new(
+                    InvalidReqBody::new("Invalid api key"),
+                    (status::BadRequest, "Invalid api key"),
+                ));
+            }
         }
 
         debug!("Validated the API key for the request");
@@ -74,28 +74,28 @@ impl Handler for AuthHandler {
 unsafe impl Send for AuthHandler {}
 unsafe impl Sync for AuthHandler {}
 
-pub fn get_router_w_routes(conf: Arc<Ini>, db: Arc<DB>) -> Result<Router> {
+pub fn get_router_w_routes(conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> Result<Router> {
     let mut router = Router::new();
 
-    router.get(
+    router.post(
         "/create",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(create)),
         "create",
     );
 
-    router.get(
+    router.post(
         "/verify",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(verify)),
         "verify",
     );
 
-    router.get(
+    router.post(
         "/qr",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(qr)),
         "qr",
     );
 
-    router.get(
+    router.post(
         "/qr_url",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(qr_url)),
         "qr_url",
@@ -123,7 +123,7 @@ pub fn get_router_w_routes(conf: Arc<Ini>, db: Arc<DB>) -> Result<Router> {
  ///    "status": true
  /// }
  /// ```
-fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
+fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let g = GoogleAuthenticator::new();
     let body = match req.get::<Json>() {
         Ok(Some(b)) => b,
@@ -141,18 +141,14 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response
     let secret = g.create_secret(len);
 
     // I need a mutable reference to the database for operations
-    let mut mdb = db.clone();
-    let db = Arc::get_mut(&mut mdb).unwrap();
+    let mut mdb = db.lock().unwrap();
 
-    match db.create_secret(ident, &secret) {
-        Ok(_) => (),
-        Err(_) => {
-            return Err(IronError::new(
-                error::HttpError::Method,
-                (status::InternalServerError, "Database error"),
-            ));
-        }
-    };
+    if let Err(_) = mdb.create_secret(ident, &secret) {
+        return Err(IronError::new(
+            error::HttpError::Method,
+            (status::InternalServerError, "Database error"),
+        ));
+    }
 
     debug!("Secret added to db: {:?}", secret);
 
@@ -174,10 +170,11 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response
 /// The response will be:
 /// ```
 /// {
-///     "status": true|false
+///     "status": true|false,
+///     "verified": true|false
 /// }
 /// ```
-fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
+fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let g = GoogleAuthenticator::new();
     let body = match req.get::<Json>() {
         Ok(Some(b)) => b,
@@ -193,15 +190,15 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Respons
     let ident = body["ident"].as_str().unwrap();
     let code = body["code"].as_str().unwrap();
 
-    let secret = match get_secret(ident, db.clone()) {
+    let secret = match get_secret(ident, db) {
         Ok(sec) => sec,
         Err(e) => return Err(e),
     };
 
-    let ret = g.verify_code(&secret, code, 1, 0);
+    let ret = g.verify_code(&secret, code, 0, 0);
 
     return Ok(Response::with(
-        (get_json_ct(), status::Ok, object!{status: ret}.dump())
+        (get_json_ct(), status::Ok, object!{status: true, verified: ret}.dump())
     ));
 }
 
@@ -222,10 +219,10 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Respons
 ///     "qr_code": "SVG string"
 /// }
 /// ```
-fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
+fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let goog = GoogleAuthenticator::new();
     let (_, name, title, secret, width, height) = 
-        match get_qr_data(req, conf.clone(), db.clone()) {
+        match get_qr_data(req, conf.clone(), db) {
             Ok(t) => t,
             Err(e) => return Err(e),
         };
@@ -274,11 +271,11 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<DB>) -> IronResult<Response> {
 fn qr_url(
     req: &mut Request,
     conf: Arc<Ini>,
-    db: Arc<DB>,
+    db: Arc<Mutex<DB>>,
 ) -> IronResult<Response> {
     let goog = GoogleAuthenticator::new();
     let (_, name, title, secret, width, height) = 
-        match get_qr_data(req, conf.clone(), db.clone()) {
+        match get_qr_data(req, conf.clone(), db) {
             Ok(t) => t,
             Err(e) => return Err(e),
         };
@@ -303,14 +300,14 @@ fn qr_url(
 
 /// Simple helper function for getting the secret for a given ident from the
 /// db
-fn get_secret(ident: &str, db: Arc<DB>) -> Result<String, IronError> {
+fn get_secret(ident: &str, db: Arc<Mutex<DB>>) -> Result<String, IronError> {
     // I need a mutable reference to the database for operations
-    let mut mdb = db.clone();
-    let db = Arc::get_mut(&mut mdb).unwrap();
+    let mut mdb = db.lock().unwrap();
 
-    let secret = match db.get_secret(ident) {
+    let secret = match mdb.get_secret(ident) {
         Ok((_, sec)) => sec,
-        Err(_) => {
+        Err(e) => {
+            error!("Error getting secret: {}", e);
             return Err(IronError::new(
                 error::HttpError::Method,
                 (status::InternalServerError, "Database error"),
@@ -325,7 +322,7 @@ fn get_secret(ident: &str, db: Arc<DB>) -> Result<String, IronError> {
 fn get_qr_data(
     req: &mut Request,
     conf: Arc<Ini>,
-    db: Arc<DB>,
+    db: Arc<Mutex<DB>>,
 ) -> Result<(String, String, String, String, u32, u32), IronError> {
     let body = match req.get::<Json>() {
         Ok(Some(b)) => b,
@@ -338,15 +335,15 @@ fn get_qr_data(
         }
     };
 
-    let ident = body["ident"].to_string();
-    let name = body["name"].to_string();
-    let title = body["title"].to_string();
+    let ident = body["ident"].as_str().unwrap().to_string();
+    let name = body["name"].as_str().unwrap().to_string();
+    let title = body["title"].as_str().unwrap().to_string();
     let width = conf.getuint("auth", "default_width")
         .unwrap().unwrap() as u32;
     let height = conf.getuint("auth", "default_height")
         .unwrap().unwrap() as u32;
 
-    let secret = match get_secret(&ident, db.clone()) {
+    let secret = match get_secret(&ident, db) {
         Ok(sec) => sec,
         Err(e) => return Err(e),
     };

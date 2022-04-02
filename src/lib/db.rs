@@ -25,10 +25,11 @@ impl DB {
     pub fn api_key_exists(&mut self, api_key: &str) -> bool {
         let q = "SELECT host FROM loc_auth WHERE api_key = $1";
 
-        match self.client.query_one(q, &[&api_key]) {
-            Ok(_) => return true,
-            Err(_) => return false,
-        };
+        if let Ok(_) = self.client.query_one(q, &[&api_key]) {
+            return true;
+        }
+        
+        return false;
     }
 
     /*
