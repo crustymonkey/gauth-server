@@ -136,14 +136,16 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
         }
     };
 
-    let ident = body["ident"].as_str().unwrap();
+    let ident = body["ident"].as_str();
     let len = conf.getuint("auth", "secret_len") .unwrap().unwrap() as u8;
     let secret = g.create_secret(len);
+
+    validate_params(&[ident])?;
 
     // I need a mutable reference to the database for operations
     let mut mdb = db.lock().unwrap();
 
-    if let Err(_) = mdb.create_secret(ident, &secret) {
+    if let Err(_) = mdb.create_secret(ident.unwrap(), &secret) {
         return Err(IronError::new(
             error::HttpError::Method,
             (status::InternalServerError, "Database error"),
@@ -187,15 +189,17 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
         }
     };
 
-    let ident = body["ident"].as_str().unwrap();
-    let code = body["code"].as_str().unwrap();
+    let ident = body["ident"].as_str();
+    let code = body["code"].as_str();
 
-    let secret = match get_secret(ident, db) {
+    validate_params(&[ident, code])?;
+
+    let secret = match get_secret(ident.unwrap(), db) {
         Ok(sec) => sec,
         Err(e) => return Err(e),
     };
 
-    let ret = g.verify_code(&secret, code, 0, 0);
+    let ret = g.verify_code(&secret, code.unwrap(), 0, 0);
 
     return Ok(Response::with(
         (get_json_ct(), status::Ok, object!{status: true, verified: ret}.dump())
@@ -335,23 +339,26 @@ fn get_qr_data(
         }
     };
 
-    let ident = body["ident"].as_str().unwrap().to_string();
-    let name = body["name"].as_str().unwrap().to_string();
-    let title = body["title"].as_str().unwrap().to_string();
+    let ident = body["ident"].as_str();
+    let name = body["name"].as_str();
+    let title = body["title"].as_str();
+
+    validate_params(&[ident, name, title])?;
+
     let width = conf.getuint("auth", "default_width")
         .unwrap().unwrap() as u32;
     let height = conf.getuint("auth", "default_height")
         .unwrap().unwrap() as u32;
 
-    let secret = match get_secret(&ident, db) {
+    let secret = match get_secret(ident.unwrap(), db) {
         Ok(sec) => sec,
         Err(e) => return Err(e),
     };
 
     return Ok((
-        ident,
-        name,
-        title,
+        ident.unwrap().to_string(),
+        name.unwrap().to_string(),
+        title.unwrap().to_string(),
         secret,
         width,
         height,
@@ -361,4 +368,21 @@ fn get_qr_data(
 /// Utility function used to return a JSON content type for responses
 fn get_json_ct() -> mime::Mime {
     return "application/json".parse::<mime::Mime>().unwrap();
+}
+
+/// This is just a convenience function for validating that parameters are
+/// correctly passed in
+fn validate_params<T>(params: &[Option<T>]) -> Result<(), IronError> {
+    for p in params.iter() {
+        // Just go through the params and check for something being none,
+        // which will be an error
+        if p.is_none() {
+            return Err(IronError::new(
+                InvalidReqBody::new("Request parameters missing"),
+                (status::BadRequest, "Request parameters missing"),
+            ));
+        }
+    }
+
+    return Ok(());
 }
