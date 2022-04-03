@@ -8,17 +8,21 @@ use router::Router;
 use std::sync::{Arc, Mutex};
 use super::{db::DB, error::InvalidReqBody};
 
+// shortcut type
+type Callback = Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>)
+    -> IronResult<Response>>;
+
 pub struct AuthHandler {
     config: Arc<Ini>,
     db: Arc<Mutex<DB>>,
-    func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>) -> IronResult<Response>>,
+    func: Callback,  // Callback func
 }
 
 impl AuthHandler {
     fn new(
         config: Arc<Ini>,
         db: Arc<Mutex<DB>>,
-        func: Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>) -> IronResult<Response>>,
+        func: Callback,  // Callback func
     ) -> Self {
         return Self { config, db, func };
     }
@@ -40,24 +44,16 @@ impl Handler for AuthHandler {
                 ));
             }
         };
-
-        let api_key = match body.get("api_key") {
-            Some(k) => k.as_str().unwrap().to_string(),
-            None => {
-                error!("api_key missing from request body");
-                return Err(IronError::new(
-                    InvalidReqBody::new("'api_key' missing from JSON body"),
-                    (status::BadRequest, "Missing api_key"),
-                ));
-            },
-        };
+        let api_key = body["api_key"].as_str();
+        validate_params(&[api_key])?;
+        let api_key = api_key.unwrap();
 
         debug!("API KEY: {:?}", api_key);
         {
             // I need a mutable reference to the database for operations
             let mut mdb = self.db.lock().unwrap();
 
-            if !mdb.api_key_exists(&api_key) {
+            if !mdb.api_key_exists(api_key) {
                 error!("Invalid api_key passed in: {}", api_key);
                 return Err(IronError::new(
                     InvalidReqBody::new("Invalid api key"),
