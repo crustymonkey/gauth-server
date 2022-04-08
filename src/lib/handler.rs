@@ -70,8 +70,10 @@ impl Handler for AuthHandler {
 unsafe impl Send for AuthHandler {}
 unsafe impl Sync for AuthHandler {}
 
-pub fn get_router_w_routes(conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> Result<Router> {
+pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
     let mut router = Router::new();
+    let conf = Arc::new(conf);
+    let db = Arc::new(Mutex::new(db));
 
     router.post(
         "/create",

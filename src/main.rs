@@ -9,7 +9,6 @@ use configparser::ini::Ini;
 use iron::prelude::*;
 use std::path::PathBuf;
 use std::process::exit;
-use std::sync::{Arc, Mutex};
 use lib::config::get_config;
 use lib::handler::get_router_w_routes;
 use lib::db::DB;
@@ -106,27 +105,28 @@ fn create_api_key(db: &mut DB, host: &str) -> Result<String> {
 fn main() {
     let args = get_args();
     setup_logging(&args);
-    let conf = Arc::new(get_config(&args.config));
+    let conf = get_config(&args.config);
     let db_params = get_db_params(&conf);
-    let db = Arc::new(Mutex::new(DB::new(&db_params)));
+    let mut db = DB::new(&db_params);
 
     if !args.host.is_empty() {
         debug!("Creating a new API key for host {}", &args.host);
-        let mut tdb = db.lock().unwrap();
         let key = create_api_key(
-            &mut tdb,
+            &mut db,
             &args.host,
         ).unwrap();
         println!("New API key for {}: {}", &args.host, &key);
         exit(0);
     }
 
-    let routes = get_router_w_routes(conf.clone(), db.clone()).unwrap();
-
-    Iron::new(routes).http(format!(
+    let bind_str = format!(
         "{}:{}",
         conf.get("main", "bind_ip").unwrap(),
         conf.getint("main", "port").unwrap().unwrap(),
-    )).unwrap();
+    );
+
+    let routes = get_router_w_routes(conf, db).unwrap();
+
+    Iron::new(routes).http(&bind_str).unwrap();
 
 }
