@@ -125,7 +125,7 @@ And your response will be:
 An example request:
 
 ```bash
-http -j --follow localhost:9005/qr api_key=abc123 ident=test name=Company title=testing
+http -j --follow localhost:9005/qr_url api_key=abc123 ident=test name=Company title=testing
 ```
 
 Note that you can change the default width and height for this image in your config file.
@@ -149,6 +149,12 @@ And your response will be:
     "status": true|false,
     "verified": true|false
 }
+```
+
+An example request:
+
+```bash
+http -j --follow localhost:9005/verify api_key=abc123 ident=test code=123456
 ```
 
 # TODO
