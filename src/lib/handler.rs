@@ -118,7 +118,9 @@ pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
  /// The response will be:
  /// ```
  /// {
- ///    "status": true
+ ///    "status": true,
+ ///    "ident": <ident>,
+ ///    "secret": <secret>
  /// }
  /// ```
 fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
@@ -143,17 +145,25 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
     // I need a mutable reference to the database for operations
     let mut mdb = db.lock().unwrap();
 
-    if let Err(_) = mdb.create_secret(ident.unwrap(), &secret) {
+    if let Err(e) = mdb.create_secret(ident.unwrap(), &secret) {
         return Err(IronError::new(
             error::HttpError::Method,
-            (status::InternalServerError, "Database error"),
+            (status::InternalServerError, format!("Database error: {}", e)),
         ));
     }
 
     debug!("Secret added to db: {:?}", secret);
 
     return Ok(Response::with(
-        (get_json_ct(), status::Ok, object!{status: true}.dump())
+        (
+            get_json_ct(),
+            status::Ok,
+            object!{
+                status: true,
+                ident: ident.unwrap(),
+                secret: secret
+            }.dump()
+        ),
     ));
 }
 
