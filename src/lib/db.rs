@@ -32,6 +32,16 @@ impl DB {
         return false;
     }
 
+    pub fn get_host_for_api_key(&mut self, api_key: &str) -> Result<String> {
+        let q = "SELECT host FROM loc_auth WHERE api_key = $1";
+
+        let row = self.client.query_one(q, &[&api_key])?;
+
+        let ret: String = row.get("host");
+
+        return Ok(ret);
+    }
+
     /*
      * Begin secret methods
      */
@@ -39,6 +49,14 @@ impl DB {
         let q = "INSERT INTO secrets (ident, token) VALUES ($1, $2)";
 
         self.client.execute(q, &[&ident, &secret])?;
+
+        return Ok(());
+    }
+
+    pub fn delete_secret(&mut self, ident: &str) -> Result<()> {
+        let q = "DELETE FROM secrets WHERE ident = $1";
+
+        self.client.execute(q, &[&ident])?;
 
         return Ok(());
     }
@@ -111,6 +129,14 @@ fn test_secrets() {
     assert_eq!(ret_ident, ident);
     assert_eq!(ret_token, secret);
 
+    let res = conn.delete_secret(ident);
+
+    assert!(res.is_ok());
+
+    let res = conn.get_secret(ident);
+
+    assert!(res.is_err());
+
     _test_cleanup(&mut conn);
 }
 
@@ -124,6 +150,11 @@ fn test_api_key() {
     assert!(res.is_ok());
 
     assert!(conn.api_key_exists(api_key));
+
+    let res = conn.get_host_for_api_key(api_key);
+
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), host.to_string());
 
     _test_cleanup(&mut conn);
 }

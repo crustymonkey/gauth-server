@@ -71,6 +71,30 @@ An example request with [httpie](https://httpie.io/):
 http -j --follow localhost:8000/create api_key=abc123 ident=test
 ```
 
+### /delete
+Creating a token is as simple as calling your API server with the following payload:
+
+```json
+{
+    "api_key": "abc123",
+    "ident": "key identifier"
+}
+```
+
+Your response will look like:
+
+```json
+{
+    "status": true|false,
+}
+```
+
+An example request with [httpie](https://httpie.io/):
+
+```bash
+http -j --follow localhost:8000/delete api_key=abc123 ident=test
+```
+
 ### /qr
 You can use this API to get an SVG string representing the qr code that
 you can then display to the user.  The API payload is:

@@ -44,16 +44,19 @@ impl Handler for AuthHandler {
                 ));
             }
         };
+
         let api_key = body["api_key"].as_str();
         validate_params(&[api_key])?;
         let api_key = api_key.unwrap();
+        let host: Result<String>;
 
         debug!("API KEY: {:?}", api_key);
         {
             // I need a mutable reference to the database for operations
             let mut mdb = self.db.lock().unwrap();
+            host = mdb.get_host_for_api_key(api_key);
 
-            if !mdb.api_key_exists(api_key) {
+            if host.is_err() {
                 error!("Invalid api_key passed in: {}", api_key);
                 return Err(IronError::new(
                     InvalidReqBody::new("Invalid api key"),
@@ -62,7 +65,7 @@ impl Handler for AuthHandler {
             }
         }
 
-        debug!("Validated the API key for the request");
+        info!("Validated the API key for {}", host.unwrap());
         return (*self.func)(req, self.config.clone(), self.db.clone());
     }
 }
@@ -79,6 +82,12 @@ pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
         "/create",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(create)),
         "create",
+    );
+
+    router.post(
+        "/delete",
+        AuthHandler::new(conf.clone(), db.clone(), Box::new(delete)),
+        "delete",
     );
 
     router.post(
@@ -152,7 +161,7 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
         ));
     }
 
-    debug!("Secret added to db: {:?}", secret);
+    info!("Secret added to db for {}: {:?}", ident.unwrap(), secret);
 
     return Ok(Response::with(
         (
@@ -162,6 +171,61 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
                 status: true,
                 ident: ident.unwrap(),
                 secret: secret
+            }.dump()
+        ),
+    ));
+} 
+
+
+/// This consists of a reuqest to delete a secret. The request body
+ /// should look like:
+ /// ```
+ /// {
+ ///    "api_key": "abc123",
+ ///    "ident": "key identifier"
+ /// }
+ /// ```
+ /// 
+ /// The response will be:
+ /// ```
+ /// {
+ ///    "status": true,
+ /// }
+ /// ```
+fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
+    let body = match req.get::<Json>() {
+        Ok(Some(b)) => b,
+        _ => {
+            error!("Unable to parse request body");
+            return Err(IronError::new(
+                InvalidReqBody::new("Invalid JSON body"),
+                (status::BadRequest, "Invalid JSON request body")
+            ));
+        }
+    };
+
+    let ident = body["ident"].as_str();
+
+    validate_params(&[ident])?;
+
+    // I need a mutable reference to the database for operations
+    let mut mdb = db.lock().unwrap();
+
+    if let Err(e) = mdb.delete_secret(ident.unwrap()) {
+        return Err(IronError::new(
+            error::HttpError::Method,
+            (status::InternalServerError, format!("Database error: {}", e)),
+        ));
+    }
+
+    info!("Secret deleted for ident: {:?}", ident.unwrap());
+
+    return Ok(Response::with(
+        (
+            get_json_ct(),
+            status::Ok,
+            object!{
+                status: true,
             }.dump()
         ),
     ));
