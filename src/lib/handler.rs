@@ -78,6 +78,13 @@ pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
     let conf = Arc::new(conf);
     let db = Arc::new(Mutex::new(db));
 
+
+    router.get(
+        "/",
+        index_page,
+        "index",
+    );
+
     router.post(
         "/create",
         AuthHandler::new(conf.clone(), db.clone(), Box::new(create)),
@@ -435,6 +442,19 @@ fn get_qr_data(
         width,
         height,
     ));
+}
+
+fn index_page(_: &mut Request) -> Result<Response, IronError> {
+    let mut resp = Response::new();
+    let page = "<html><head><title>Gauth Server</title></head><body> \
+        <p>You can find the documentation for this at \
+        <a href=\"https://github.com/crustymonkey/gauth-server\">https://github.com/crustymonkey/gauth-server</a> \
+        </p></body></html>";
+    resp.set_mut(page.to_string());
+    resp.set_mut(status::Ok);
+    resp.set_mut("text/html".parse::<mime::Mime>().unwrap());
+
+    return Ok(resp);
 }
 
 /// Utility function used to return a JSON content type for responses
