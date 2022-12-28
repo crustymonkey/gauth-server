@@ -180,6 +180,3 @@ An example request:
 ```bash
 http -j --follow localhost:9005/verify api_key=abc123 ident=test code=123456
 ```
-
-# TODO
-* There's some cleanup that needs to be done to handle some errors and return them as pure JSON responses, rather than the current mix of `status: false` and HTTP errors.
