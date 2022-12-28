@@ -122,6 +122,10 @@ fn test_secrets() {
     }
     assert!(res.is_ok());
 
+    // Test a duplicate secret
+    let res = conn.create_secret(ident, secret);
+    assert!(res.is_err());
+
     let (id, token) = conn.get_secret(ident).unwrap();
     assert_eq!(token, secret);
 

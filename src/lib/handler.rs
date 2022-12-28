@@ -4,6 +4,7 @@ use configparser::ini::Ini;
 use google_authenticator::{GoogleAuthenticator, ErrorCorrectionLevel::Medium};
 use iron::{prelude::*, Handler, error, status, mime};
 use json::object;
+use postgres::error::DbError;
 use router::Router;
 use std::sync::{Arc, Mutex};
 use super::{db::DB, error::InvalidReqBody};
@@ -162,9 +163,22 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
     let mut mdb = db.lock().unwrap();
 
     if let Err(e) = mdb.create_secret(ident.unwrap(), &secret) {
-        return Err(IronError::new(
-            error::HttpError::Method,
-            (status::InternalServerError, format!("Database error: {}", e)),
+        let err_code = e.root_cause().downcast_ref::<DbError>().unwrap()
+            .code().code();
+        let mut err = format!("Database error: {}", e);
+        if err_code == "23505" {
+            err = "Database error: duplicate entry".to_string();
+        }
+
+        return Ok(Response::with(
+            (
+                get_json_ct(),
+                status::Ok,
+                object!{
+                    status: false,
+                    message: err,
+                }.dump(),
+            )
         ));
     }
 
@@ -219,9 +233,18 @@ fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
     let mut mdb = db.lock().unwrap();
 
     if let Err(e) = mdb.delete_secret(ident.unwrap()) {
-        return Err(IronError::new(
-            error::HttpError::Method,
-            (status::InternalServerError, format!("Database error: {}", e)),
+        let err = e.root_cause().downcast_ref::<DbError>().unwrap()
+            .message();
+
+        return Ok(Response::with(
+            (
+                get_json_ct(),
+                status::Ok,
+                object!{
+                    status: false,
+                    message: err,
+                }.dump(),
+            )
         ));
     }
 
@@ -275,13 +298,28 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
 
     let secret = match get_secret(ident.unwrap(), db) {
         Ok(sec) => sec,
-        Err(e) => return Err(e),
+        Err(_) => {
+            return Ok(Response::with(
+                (
+                    get_json_ct(),
+                    status::Ok,
+                    object!{
+                        status: false,
+                        message: "Invalid identity",
+                    }.dump(),
+                )
+            ));
+        }
     };
 
     let ret = g.verify_code(&secret, code.unwrap(), 0, 0);
 
     return Ok(Response::with(
-        (get_json_ct(), status::Ok, object!{status: true, verified: ret}.dump())
+        (
+            get_json_ct(),
+            status::Ok,
+            object!{status: true, verified: ret}.dump()
+        )
     ));
 }
 
@@ -307,7 +345,18 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Respo
     let (_, name, title, secret, width, height) = 
         match get_qr_data(req, conf.clone(), db) {
             Ok(t) => t,
-            Err(e) => return Err(e),
+            Err(_) => {
+                return Ok(Response::with(
+                    (
+                        get_json_ct(),
+                        status::Ok,
+                        object!{
+                            status: false,
+                            message: "Failed to get qr data",
+                        }.dump(),
+                    )
+                ));
+            }
         };
 
     let ret = match goog.qr_code(
@@ -321,9 +370,15 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Respo
         Ok(s) => s,
         Err(e) => {
             error!("Error creating qr code: {}", e);
-            return Err(IronError::new(
-                error::HttpError::Method,
-                (status::InternalServerError, "Failed to create qr code"),
+            return Ok(Response::with(
+                (
+                    get_json_ct(),
+                    status::Ok,
+                    object!{
+                        status: false,
+                        message: "Failed to create qr code",
+                    }.dump(),
+                )
             ));
         },
     };
@@ -360,7 +415,18 @@ fn qr_url(
     let (_, name, title, secret, width, height) = 
         match get_qr_data(req, conf.clone(), db) {
             Ok(t) => t,
-            Err(e) => return Err(e),
+            Err(_) => {
+                return Ok(Response::with(
+                    (
+                        get_json_ct(),
+                        status::Ok,
+                        object!{
+                            status: false,
+                            message: "Failed to create qr url",
+                        }.dump(),
+                    )
+                ));
+            }
         };
 
     let ret = goog.qr_code_url(
