@@ -1,7 +1,7 @@
 extern crate chrono;
 #[macro_use] extern crate log;
 
-mod lib;
+mod alib;
 
 use anyhow::Result;
 use clap::Parser;
@@ -9,9 +9,11 @@ use configparser::ini::Ini;
 use iron::prelude::*;
 use std::path::PathBuf;
 use std::process::exit;
-use lib::config::get_config;
-use lib::handler::get_router_w_routes;
-use lib::db::DB;
+use alib::{
+    config::get_config,
+    handler::get_router_w_routes,
+    db::DB,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author="Jay Deiman", version, about="", long_about=None)]
