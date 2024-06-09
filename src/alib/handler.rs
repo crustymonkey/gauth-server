@@ -1,29 +1,28 @@
+use super::{db::DB, error::InvalidReqBody};
 use anyhow::Result;
 use bodyparser::Json;
 use configparser::ini::Ini;
-use google_authenticator::{GoogleAuthenticator, ErrorCorrectionLevel::Medium};
-use iron::{prelude::*, Handler, error, status, mime};
+use google_authenticator::{ErrorCorrectionLevel::Medium, GoogleAuthenticator};
+use iron::{error, mime, prelude::*, status, Handler};
 use json::object;
 use postgres::error::DbError;
 use router::Router;
 use std::sync::{Arc, Mutex};
-use super::{db::DB, error::InvalidReqBody};
 
 // shortcut type
-type Callback = Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>)
-    -> IronResult<Response>>;
+type Callback = Box<dyn Fn(&mut Request, Arc<Ini>, Arc<Mutex<DB>>) -> IronResult<Response>>;
 
 pub struct AuthHandler {
     config: Arc<Ini>,
     db: Arc<Mutex<DB>>,
-    func: Callback,  // Callback func
+    func: Callback, // Callback func
 }
 
 impl AuthHandler {
     fn new(
         config: Arc<Ini>,
         db: Arc<Mutex<DB>>,
-        func: Callback,  // Callback func
+        func: Callback, // Callback func
     ) -> Self {
         return Self { config, db, func };
     }
@@ -41,7 +40,7 @@ impl Handler for AuthHandler {
                 error!("Unable to parse request body");
                 return Err(IronError::new(
                     InvalidReqBody::new("Invalid JSON body"),
-                    (status::BadRequest, "Invalid JSON request body")
+                    (status::BadRequest, "Invalid JSON request body"),
                 ));
             }
         };
@@ -79,12 +78,7 @@ pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
     let conf = Arc::new(conf);
     let db = Arc::new(Mutex::new(db));
 
-
-    router.get(
-        "/",
-        index_page,
-        "index",
-    );
+    router.get("/", index_page, "index");
 
     router.post(
         "/create",
@@ -123,23 +117,23 @@ pub fn get_router_w_routes(conf: Ini, db: DB) -> Result<Router> {
  * Below here are the actual handler functions for the requests
  */
 
- /// This consists of a reuqest to create a new secret. The request body
- /// should look like:
- /// ```
- /// {
- ///    "api_key": "abc123",
- ///    "ident": "key identifier"
- /// }
- /// ```
- /// 
- /// The response will be:
- /// ```
- /// {
- ///    "status": true,
- ///    "ident": <ident>,
- ///    "secret": <secret>
- /// }
- /// ```
+/// This consists of a reuqest to create a new secret. The request body
+/// should look like:
+/// ```
+/// {
+///    "api_key": "abc123",
+///    "ident": "key identifier"
+/// }
+/// ```
+///
+/// The response will be:
+/// ```
+/// {
+///    "status": true,
+///    "ident": <ident>,
+///    "secret": <secret>
+/// }
+/// ```
 fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let g = GoogleAuthenticator::new();
     let body = match req.get::<Json>() {
@@ -148,13 +142,13 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
             error!("Unable to parse request body");
             return Err(IronError::new(
                 InvalidReqBody::new("Invalid JSON body"),
-                (status::BadRequest, "Invalid JSON request body")
+                (status::BadRequest, "Invalid JSON request body"),
             ));
         }
     };
 
     let ident = body["ident"].as_str();
-    let len = conf.getuint("auth", "secret_len") .unwrap().unwrap() as u8;
+    let len = conf.getuint("auth", "secret_len").unwrap().unwrap() as u8;
     let secret = g.create_secret(len);
 
     validate_params(&[ident])?;
@@ -163,56 +157,57 @@ fn create(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<R
     let mut mdb = db.lock().unwrap();
 
     if let Err(e) = mdb.create_secret(ident.unwrap(), &secret) {
-        let err_code = e.root_cause().downcast_ref::<DbError>().unwrap()
-            .code().code();
+        let err_code = e
+            .root_cause()
+            .downcast_ref::<DbError>()
+            .unwrap()
+            .code()
+            .code();
         let mut err = format!("Database error: {}", e);
         if err_code == "23505" {
             err = "Database error: duplicate entry".to_string();
         }
 
-        return Ok(Response::with(
-            (
-                get_json_ct(),
-                status::Ok,
-                object!{
-                    status: false,
-                    message: err,
-                }.dump(),
-            )
-        ));
+        return Ok(Response::with((
+            get_json_ct(),
+            status::Ok,
+            object! {
+                status: false,
+                message: err,
+            }
+            .dump(),
+        )));
     }
 
     info!("Secret added to db for {}: {:?}", ident.unwrap(), secret);
 
-    return Ok(Response::with(
-        (
-            get_json_ct(),
-            status::Ok,
-            object!{
-                status: true,
-                ident: ident.unwrap(),
-                secret: secret
-            }.dump()
-        ),
-    ));
-} 
-
+    return Ok(Response::with((
+        get_json_ct(),
+        status::Ok,
+        object! {
+            status: true,
+            ident: ident.unwrap(),
+            secret: secret
+        }
+        .dump(),
+    )));
+}
 
 /// This consists of a reuqest to delete a secret. The request body
- /// should look like:
- /// ```
- /// {
- ///    "api_key": "abc123",
- ///    "ident": "key identifier"
- /// }
- /// ```
- /// 
- /// The response will be:
- /// ```
- /// {
- ///    "status": true,
- /// }
- /// ```
+/// should look like:
+/// ```
+/// {
+///    "api_key": "abc123",
+///    "ident": "key identifier"
+/// }
+/// ```
+///
+/// The response will be:
+/// ```
+/// {
+///    "status": true,
+/// }
+/// ```
 fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let body = match req.get::<Json>() {
         Ok(Some(b)) => b,
@@ -220,7 +215,7 @@ fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
             error!("Unable to parse request body");
             return Err(IronError::new(
                 InvalidReqBody::new("Invalid JSON body"),
-                (status::BadRequest, "Invalid JSON request body")
+                (status::BadRequest, "Invalid JSON request body"),
             ));
         }
     };
@@ -233,32 +228,29 @@ fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
     let mut mdb = db.lock().unwrap();
 
     if let Err(e) = mdb.delete_secret(ident.unwrap()) {
-        let err = e.root_cause().downcast_ref::<DbError>().unwrap()
-            .message();
+        let err = e.root_cause().downcast_ref::<DbError>().unwrap().message();
 
-        return Ok(Response::with(
-            (
-                get_json_ct(),
-                status::Ok,
-                object!{
-                    status: false,
-                    message: err,
-                }.dump(),
-            )
-        ));
+        return Ok(Response::with((
+            get_json_ct(),
+            status::Ok,
+            object! {
+                status: false,
+                message: err,
+            }
+            .dump(),
+        )));
     }
 
     info!("Secret deleted for ident: {:?}", ident.unwrap());
 
-    return Ok(Response::with(
-        (
-            get_json_ct(),
-            status::Ok,
-            object!{
-                status: true,
-            }.dump()
-        ),
-    ));
+    return Ok(Response::with((
+        get_json_ct(),
+        status::Ok,
+        object! {
+            status: true,
+        }
+        .dump(),
+    )));
 }
 
 /// This will verify that a code is valid for the given identity (hostname)
@@ -270,7 +262,7 @@ fn delete(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
 ///     "code": 123456
 /// }
 /// ```
-/// 
+///
 /// The response will be:
 /// ```
 /// {
@@ -286,7 +278,7 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
             error!("Unable to parse request body");
             return Err(IronError::new(
                 InvalidReqBody::new("Invalid JSON body"),
-                (status::BadRequest, "Invalid JSON request body")
+                (status::BadRequest, "Invalid JSON request body"),
             ));
         }
     };
@@ -299,28 +291,25 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
     let secret = match get_secret(ident.unwrap(), db) {
         Ok(sec) => sec,
         Err(_) => {
-            return Ok(Response::with(
-                (
-                    get_json_ct(),
-                    status::Ok,
-                    object!{
-                        status: false,
-                        message: "Invalid identity",
-                    }.dump(),
-                )
-            ));
+            return Ok(Response::with((
+                get_json_ct(),
+                status::Ok,
+                object! {
+                    status: false,
+                    message: "Invalid identity",
+                }
+                .dump(),
+            )));
         }
     };
 
     let ret = g.verify_code(&secret, code.unwrap(), 0, 0);
 
-    return Ok(Response::with(
-        (
-            get_json_ct(),
-            status::Ok,
-            object!{status: true, verified: ret}.dump()
-        )
-    ));
+    return Ok(Response::with((
+        get_json_ct(),
+        status::Ok,
+        object! {status: true, verified: ret}.dump(),
+    )));
 }
 
 /// This will create and return an SVG format and return it as a string.
@@ -342,50 +331,42 @@ fn verify(req: &mut Request, _conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<
 /// ```
 fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let goog = GoogleAuthenticator::new();
-    let (_, name, title, secret, width, height) = 
-        match get_qr_data(req, conf.clone(), db) {
-            Ok(t) => t,
-            Err(_) => {
-                return Ok(Response::with(
-                    (
-                        get_json_ct(),
-                        status::Ok,
-                        object!{
-                            status: false,
-                            message: "Failed to get qr data",
-                        }.dump(),
-                    )
-                ));
-            }
-        };
+    let (_, name, title, secret, width, height) = match get_qr_data(req, conf.clone(), db) {
+        Ok(t) => t,
+        Err(_) => {
+            return Ok(Response::with((
+                get_json_ct(),
+                status::Ok,
+                object! {
+                    status: false,
+                    message: "Failed to get qr data",
+                }
+                .dump(),
+            )));
+        }
+    };
 
-    let ret = match goog.qr_code(
-        &secret,
-        &name,
-        &title,
-        width,
-        height,
-        Medium
-    ) {
+    let ret = match goog.qr_code(&secret, &name, &title, width, height, Medium) {
         Ok(s) => s,
         Err(e) => {
             error!("Error creating qr code: {}", e);
-            return Ok(Response::with(
-                (
-                    get_json_ct(),
-                    status::Ok,
-                    object!{
-                        status: false,
-                        message: "Failed to create qr code",
-                    }.dump(),
-                )
-            ));
-        },
+            return Ok(Response::with((
+                get_json_ct(),
+                status::Ok,
+                object! {
+                    status: false,
+                    message: "Failed to create qr code",
+                }
+                .dump(),
+            )));
+        }
     };
 
-    return Ok(Response::with(
-        (get_json_ct(), status::Ok, object!{status: true, qr_code: ret}.dump())
-    ));
+    return Ok(Response::with((
+        get_json_ct(),
+        status::Ok,
+        object! {status: true, qr_code: ret}.dump(),
+    )));
 }
 
 /// This will create and return a URL string for a rendered qr code.
@@ -398,7 +379,7 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Respo
 ///     "title": "title for the code"
 /// }
 /// ```
-/// 
+///
 /// The response will look like:
 /// ```
 /// {
@@ -406,41 +387,30 @@ fn qr(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Respo
 ///     "qr_code_url": "http://somewhere.com"
 /// }
 /// ```
-fn qr_url(
-    req: &mut Request,
-    conf: Arc<Ini>,
-    db: Arc<Mutex<DB>>,
-) -> IronResult<Response> {
+fn qr_url(req: &mut Request, conf: Arc<Ini>, db: Arc<Mutex<DB>>) -> IronResult<Response> {
     let goog = GoogleAuthenticator::new();
-    let (_, name, title, secret, width, height) = 
-        match get_qr_data(req, conf.clone(), db) {
-            Ok(t) => t,
-            Err(_) => {
-                return Ok(Response::with(
-                    (
-                        get_json_ct(),
-                        status::Ok,
-                        object!{
-                            status: false,
-                            message: "Failed to create qr url",
-                        }.dump(),
-                    )
-                ));
-            }
-        };
+    let (_, name, title, secret, width, height) = match get_qr_data(req, conf.clone(), db) {
+        Ok(t) => t,
+        Err(_) => {
+            return Ok(Response::with((
+                get_json_ct(),
+                status::Ok,
+                object! {
+                    status: false,
+                    message: "Failed to create qr url",
+                }
+                .dump(),
+            )));
+        }
+    };
 
-    let ret = goog.qr_code_url(
-        &secret,
-        &name,
-        &title,
-        width,
-        height,
-        Medium
-    );
+    let ret = goog.qr_code_url(&secret, &name, &title, width, height, Medium);
 
-    return Ok(Response::with(
-        (get_json_ct(), status::Ok, object!{status: true, qr_code_url: ret}.dump())
-    ));
+    return Ok(Response::with((
+        get_json_ct(),
+        status::Ok,
+        object! {status: true, qr_code_url: ret}.dump(),
+    )));
 }
 
 /*
@@ -461,7 +431,7 @@ fn get_secret(ident: &str, db: Arc<Mutex<DB>>) -> Result<String, IronError> {
                 error::HttpError::Method,
                 (status::InternalServerError, "Database error"),
             ));
-        },
+        }
     };
 
     return Ok(secret);
@@ -479,7 +449,7 @@ fn get_qr_data(
             error!("Unable to parse request body");
             return Err(IronError::new(
                 InvalidReqBody::new("Invalid JSON body"),
-                (status::BadRequest, "Invalid JSON request body")
+                (status::BadRequest, "Invalid JSON request body"),
             ));
         }
     };
@@ -490,10 +460,8 @@ fn get_qr_data(
 
     validate_params(&[ident, name, title])?;
 
-    let width = conf.getuint("auth", "default_width")
-        .unwrap().unwrap() as u32;
-    let height = conf.getuint("auth", "default_height")
-        .unwrap().unwrap() as u32;
+    let width = conf.getuint("auth", "default_width").unwrap().unwrap() as u32;
+    let height = conf.getuint("auth", "default_height").unwrap().unwrap() as u32;
 
     let secret = match get_secret(ident.unwrap(), db) {
         Ok(sec) => sec,

@@ -1,5 +1,5 @@
-use postgres::{Client, NoTls};
 use anyhow::Result;
+use postgres::{Client, NoTls};
 
 pub struct DB {
     pub client: Client,
@@ -11,7 +11,7 @@ impl DB {
         return DB { client };
     }
 
-    /* 
+    /*
      * Begin authentication methods
      */
     pub fn add_api_key(&mut self, host: &str, api_key: &str) -> Result<()> {
@@ -28,7 +28,7 @@ impl DB {
         if let Ok(_) = self.client.query_one(q, &[&api_key]) {
             return true;
         }
-        
+
         return false;
     }
 

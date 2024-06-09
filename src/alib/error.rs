@@ -8,7 +8,9 @@ pub struct InvalidReqBody {
 
 impl InvalidReqBody {
     pub fn new(error: &str) -> Self {
-        return Self { error: error.to_string() };
+        return Self {
+            error: error.to_string(),
+        };
     }
 }
 

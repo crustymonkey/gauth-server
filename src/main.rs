@@ -1,35 +1,38 @@
 extern crate chrono;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 mod alib;
 
+use alib::{config::get_config, db::DB, handler::get_router_w_routes};
 use anyhow::Result;
 use clap::Parser;
 use configparser::ini::Ini;
 use iron::prelude::*;
 use std::path::PathBuf;
 use std::process::exit;
-use alib::{
-    config::get_config,
-    handler::get_router_w_routes,
-    db::DB,
-};
 
 #[derive(Parser, Debug)]
 #[clap(author="Jay Deiman", version, about="", long_about=None)]
 struct Args {
-    #[clap(short, long, parse(from_os_str),
-        default_value="/etc/gauth/config.ini",
-        name="PATH",
-        help="The path to the config file",
+    #[clap(
+        short,
+        long,
+        parse(from_os_str),
+        default_value = "/etc/gauth/config.ini",
+        name = "PATH",
+        help = "The path to the config file"
     )]
     config: PathBuf,
-    #[clap(short='a', long="create-api-key",
-        default_value="",
-        help="Supply a hostname to create an api key.  The new key will \
-            be printed to stdout.")]
+    #[clap(
+        short = 'a',
+        long = "create-api-key",
+        default_value = "",
+        help = "Supply a hostname to create an api key.  The new key will \
+            be printed to stdout."
+    )]
     host: String,
-    #[clap(short='D', long)]
+    #[clap(short = 'D', long)]
     debug: bool,
 }
 
@@ -113,10 +116,7 @@ fn main() {
 
     if !args.host.is_empty() {
         debug!("Creating a new API key for host {}", &args.host);
-        let key = create_api_key(
-            &mut db,
-            &args.host,
-        ).unwrap();
+        let key = create_api_key(&mut db, &args.host).unwrap();
         println!("New API key for {}: {}", &args.host, &key);
         exit(0);
     }
@@ -130,5 +130,4 @@ fn main() {
     let routes = get_router_w_routes(conf, db).unwrap();
 
     Iron::new(routes).http(&bind_str).unwrap();
-
 }
